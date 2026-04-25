@@ -59,6 +59,14 @@ func TestRoundRobinTournamentLifecycle(t *testing.T) {
 	if len(matches) != 6 {
 		t.Fatalf("expected 6 round-robin matches, got %d", len(matches))
 	}
+	detailPlayers, _ := detail["players"].([]any)
+	if len(detailPlayers) != len(players) {
+		t.Fatalf("expected %d player objects, got %d", len(players), len(detailPlayers))
+	}
+	firstPlayer, _ := detailPlayers[0].(map[string]any)
+	if firstPlayer["display_name"] == "" {
+		t.Fatalf("expected tournament detail player objects, got %v", detail["players"])
+	}
 
 	// 6. Standings endpoint returns rows
 	resp, body = h.request(http.MethodGet, "/api/tournaments/"+tournamentID+"/standings", cookie, nil)

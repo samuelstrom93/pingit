@@ -40,11 +40,11 @@ func TestSinglesMatchScoringFlow(t *testing.T) {
 
 	// Create singles match: best_of=1, points=5
 	resp, body := h.request(http.MethodPost, "/api/spaces/"+spaceID+"/matches", cookie, map[string]any{
-		"kind":             "singles",
-		"home_players":     []string{players[0]},
-		"visitor_players":  []string{players[1]},
-		"best_of":          1,
-		"points_to_win":    5,
+		"kind":            "singles",
+		"home_players":    []string{players[0]},
+		"visitor_players": []string{players[1]},
+		"best_of":         1,
+		"points_to_win":   5,
 	})
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create match: %d (%s)", resp.StatusCode, body)
@@ -78,6 +78,16 @@ func TestSinglesMatchScoringFlow(t *testing.T) {
 	}
 	if m["winner_side"] != "home" {
 		t.Fatalf("want winner home, got %v", m["winner_side"])
+	}
+
+	participants, ok := final["participants"].([]any)
+	if !ok || len(participants) != 2 {
+		t.Fatalf("expected 2 participants, got %v", final["participants"])
+	}
+	first, _ := participants[0].(map[string]any)
+	player, _ := first["player"].(map[string]any)
+	if player["display_name"] == "" {
+		t.Fatalf("expected embedded player payload, got %v", first)
 	}
 }
 

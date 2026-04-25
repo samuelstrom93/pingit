@@ -1276,12 +1276,12 @@ func (s *Server) handleGetTournament(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	playerIDs, _ := s.tournamentPlayerIDs(r.Context(), tournamentID)
+	players, _ := s.tournamentPlayers(r.Context(), tournamentID)
 	matches := s.matchesByTournament(r.Context(), tournamentID)
 	standings, _ := s.computeStandings(r.Context(), tournamentID)
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"tournament": tournament,
-		"players":    playerIDs,
+		"players":    players,
 		"matches":    matches,
 		"standings":  standings,
 	})
@@ -1720,6 +1720,20 @@ func (s *Server) tournamentPlayerIDs(ctx context.Context, tournamentID string) (
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func (s *Server) tournamentPlayers(ctx context.Context, tournamentID string) ([]db.Player, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT p.id, p.space_id, p.display_name, p.user_id, p.avatar_url, p.created_at, p.deleted_at
+FROM tournament_players tp
+JOIN players p ON p.id = tp.player_id
+WHERE tp.tournament_id = ? AND p.deleted_at IS NULL
+ORDER BY COALESCE(tp.seed, 999999), p.display_name, p.id`, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPlayers(rows)
 }
 
 func (s *Server) matchesByTournament(ctx context.Context, tournamentID string) []db.Match {
