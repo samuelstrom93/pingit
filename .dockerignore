@@ -1,0 +1,33 @@
+# VCS / editor
+.git
+.gitignore
+.DS_Store
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data
+*.db
+*.db-*
+data/
+dev-emails.log
+.logs/
+
+# Frontend deps and generated output
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.vercel/
+web/.vite/
+.pnpm-store/
+
+# Go/build artifacts
+bin/
+dist/
+coverage.out
+
+# Docker / deploy-local extras
+docker-compose.override.yml
+litestream.yml
