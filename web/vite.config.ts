@@ -7,6 +7,14 @@ export default defineConfig({
 		sveltekit(),
 		SvelteKitPWA({
 			registerType: 'autoUpdate',
+			workbox: {
+				globPatterns: [
+					'client/**/*.{js,css,ico,png,svg,webp,webmanifest}',
+					// @vite-pwa/sveltekit always expects one prerendered glob. This SPA uses
+					// adapter-static fallback instead, so point that slot at existing client assets.
+					'prerendered/../client/**/*.{js,css,ico,png,svg,webp,webmanifest}'
+				]
+			},
 			manifest: {
 				name: 'Pingit',
 				short_name: 'Pingit',
