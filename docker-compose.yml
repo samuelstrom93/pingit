@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    environment:
+      PINGIT_ENV: prod
+      PINGIT_BASE_URL: ${PINGIT_BASE_URL:-http://localhost:8080}
+      PINGIT_SUPERADMIN_EMAIL: ${PINGIT_SUPERADMIN_EMAIL:-}
+      PINGIT_RESEND_API_KEY: ${PINGIT_RESEND_API_KEY:-}
+      PINGIT_EMAIL_FROM: ${PINGIT_EMAIL_FROM:-pingit@example.com}
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+

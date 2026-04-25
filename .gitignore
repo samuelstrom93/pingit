@@ -1,0 +1,13 @@
+*.db
+dev-emails.log
+data/
+web/node_modules/
+web/.svelte-kit/
+web/build/*
+!web/build/.gitkeep
+!web/build/index.html
+.DS_Store
+.env
+.env.local
+.logs/
+

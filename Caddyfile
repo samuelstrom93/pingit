@@ -1,0 +1,5 @@
+{$PINGIT_DOMAIN} {
+  reverse_proxy app:8080
+  encode gzip zstd
+}
+
