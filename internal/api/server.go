@@ -88,6 +88,7 @@ func (s *Server) Router(spa http.Handler) http.Handler {
 				spaces.Post("/{spaceID}/matches", s.handleCreateMatch)
 				spaces.Get("/{spaceID}/matches", s.handleListMatches)
 				spaces.Post("/{spaceID}/tournaments", s.handleCreateTournament)
+				spaces.Get("/{spaceID}/tournaments", s.handleListTournaments)
 				spaces.Get("/{spaceID}/stats/players/{playerID}", s.handlePlayerStats)
 				spaces.Get("/{spaceID}/stats/h2h", s.handleHeadToHead)
 			})
@@ -816,6 +817,48 @@ FROM matches WHERE space_id = ? AND deleted_at IS NULL`
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"matches": matches})
+}
+
+func (s *Server) handleListTournaments(w http.ResponseWriter, r *http.Request) {
+	spaceID := chi.URLParam(r, "spaceID")
+	user := userFromContext(r.Context())
+	if err := s.requireMembership(r.Context(), spaceID, user.ID); err != nil {
+		s.writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	statusFilter := r.URL.Query().Get("status")
+	query := `SELECT id, space_id, name, format, best_of, points_to_win, status, winner_player_id, created_by, created_at, updated_at, deleted_at
+FROM tournaments WHERE space_id = ? AND deleted_at IS NULL`
+	args := []any{spaceID}
+	if statusFilter != "" {
+		query += ` AND status = ?`
+		args = append(args, statusFilter)
+	}
+	query += ` ORDER BY updated_at DESC`
+	rows, err := s.db.QueryContext(r.Context(), query, args...)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "failed to list tournaments")
+		return
+	}
+	defer rows.Close()
+	var tournaments []db.Tournament
+	for rows.Next() {
+		var t db.Tournament
+		var winner sql.NullString
+		var deleted sql.NullInt64
+		if err := rows.Scan(&t.ID, &t.SpaceID, &t.Name, &t.Format, &t.BestOf, &t.PointsToWin, &t.Status, &winner, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
+			s.writeError(w, http.StatusInternalServerError, "failed to decode tournaments")
+			return
+		}
+		if winner.Valid {
+			t.WinnerPlayerID = &winner.String
+		}
+		if deleted.Valid {
+			t.DeletedAt = &deleted.Int64
+		}
+		tournaments = append(tournaments, t)
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"tournaments": tournaments})
 }
 
 func (s *Server) handleGetMatch(w http.ResponseWriter, r *http.Request) {

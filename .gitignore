@@ -3,6 +3,7 @@ dev-emails.log
 data/
 web/node_modules/
 web/.svelte-kit/
+.pnpm-store/
 web/build/*
 !web/build/.gitkeep
 !web/build/index.html

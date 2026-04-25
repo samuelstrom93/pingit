@@ -2,20 +2,35 @@ export type ApiOptions = RequestInit & {
   bodyJson?: unknown;
 };
 
-export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
+  if (options.bodyJson !== undefined) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   const response = await fetch(path, {
     ...options,
     headers,
     credentials: 'include',
-    body: options.bodyJson ? JSON.stringify(options.bodyJson) : options.body
+    body: options.bodyJson !== undefined ? JSON.stringify(options.bodyJson) : options.body
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(payload.error ?? 'Request failed');
+    let payload: { error?: string } = {};
+    try {
+      payload = await response.json();
+    } catch {
+      // fall through
+    }
+    throw new ApiError(payload.error ?? `Request failed (${response.status})`, response.status);
   }
 
   if (response.status === 204) {
@@ -24,4 +39,3 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   return response.json() as Promise<T>;
 }
-
