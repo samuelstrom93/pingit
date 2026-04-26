@@ -360,6 +360,16 @@ func validateMatchParticipants(kind string, home, visitor []string) error {
 	if len(home) != want || len(visitor) != want {
 		return fmt.Errorf("%s requires %d players per side", kind, want)
 	}
+	seen := map[string]bool{}
+	for _, id := range append(append([]string{}, home...), visitor...) {
+		if id == "" {
+			return fmt.Errorf("%s requires player ids for every slot", kind)
+		}
+		if seen[id] {
+			return fmt.Errorf("player %s cannot be selected more than once", id)
+		}
+		seen[id] = true
+	}
 	return nil
 }
 

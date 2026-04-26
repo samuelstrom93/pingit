@@ -46,7 +46,8 @@
         <Button onclick={() => (window.location.href = `/spaces/${space!.id}/new-match`)}>+ New match</Button>
         <Button variant="outline" onclick={() => (window.location.href = `/spaces/${space!.id}/players`)}>Players</Button>
         <Button variant="outline" onclick={() => (window.location.href = `/spaces/${space!.id}/tournaments`)}>Tournaments</Button>
-        <Button variant="outline" onclick={() => (window.location.href = `/spaces/${space!.id}/invitations`)}>Invitations</Button>
+        <Button variant="outline" onclick={() => (window.location.href = `/spaces/${space!.id}/stats`)}>Statistics</Button>
+        <Button variant="outline" onclick={() => (window.location.href = `/spaces/${space!.id}/admin`)}>Admin</Button>
       </div>
     </div>
 

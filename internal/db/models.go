@@ -29,6 +29,29 @@ type Space struct {
 	DeletedAt    *int64  `json:"deleted_at"`
 }
 
+type SpaceInvitation struct {
+	ID         string  `json:"id"`
+	SpaceID    string  `json:"space_id"`
+	Email      string  `json:"email"`
+	Token      string  `json:"token"`
+	InvitedBy  string  `json:"invited_by"`
+	Status     string  `json:"status"`
+	CreatedAt  int64   `json:"created_at"`
+	AcceptedAt *int64  `json:"accepted_at"`
+}
+
+type SpaceJoinRequest struct {
+	ID         string  `json:"id"`
+	SpaceID    string  `json:"space_id"`
+	UserID     string  `json:"user_id"`
+	JoinCode   string  `json:"join_code"`
+	Status     string  `json:"status"`
+	Message    *string `json:"message"`
+	CreatedAt  int64   `json:"created_at"`
+	ReviewedAt *int64  `json:"reviewed_at"`
+	ReviewedBy *string `json:"reviewed_by"`
+}
+
 type Player struct {
 	ID          string  `json:"id"`
 	SpaceID     string  `json:"space_id"`

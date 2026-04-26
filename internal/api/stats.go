@@ -11,6 +11,21 @@ import (
 	"github.com/samuelstrom93/pingit/internal/domain"
 )
 
+func (s *Server) handleSpaceStats(w http.ResponseWriter, r *http.Request) {
+	spaceID := chi.URLParam(r, "spaceID")
+	user := userFromContext(r.Context())
+	if err := s.requireMembership(r.Context(), spaceID, user.ID); err != nil {
+		s.writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	stats, err := s.computeSpaceStats(r.Context(), spaceID)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "failed to compute stats")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, stats)
+}
+
 func (s *Server) handlePlayerStats(w http.ResponseWriter, r *http.Request) {
 	spaceID := chi.URLParam(r, "spaceID")
 	playerID := chi.URLParam(r, "playerID")
@@ -115,6 +130,143 @@ GROUP BY opp.player_id`, playerID, spaceID)
 		"best_opponent":  bestOpponent,
 		"worst_opponent": worstOpponent,
 	}, nil
+}
+
+type spacePlayerStats struct {
+	PlayerID        string         `json:"player_id"`
+	DisplayName     string         `json:"display_name"`
+	Matches         int            `json:"matches"`
+	Wins            int            `json:"wins"`
+	Losses          int            `json:"losses"`
+	WinRate         float64        `json:"win_rate"`
+	PointsFor       int            `json:"points_for"`
+	PointsAgainst   int            `json:"points_against"`
+	AveragePoints   float64        `json:"average_points"`
+	BreakdownByKind map[string]any `json:"breakdown_by_kind"`
+	BreakdownBySet  map[string]any `json:"breakdown_by_set"`
+}
+
+type statsBucket struct {
+	Matches       int `json:"matches"`
+	Wins          int `json:"wins"`
+	Losses        int `json:"losses"`
+	PointsFor     int `json:"points_for"`
+	PointsAgainst int `json:"points_against"`
+}
+
+func (s *Server) computeSpaceStats(ctx context.Context, spaceID string) (map[string]any, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT p.id, p.display_name, m.kind, m.points_to_win, m.winner_side, mp.side,
+       COALESCE(SUM(CASE WHEN mp.side = 'home' THEN g.home_score ELSE g.visitor_score END), 0) AS points_for,
+       COALESCE(SUM(CASE WHEN mp.side = 'home' THEN g.visitor_score ELSE g.home_score END), 0) AS points_against
+FROM players p
+JOIN match_participants mp ON mp.player_id = p.id
+JOIN matches m ON m.id = mp.match_id
+LEFT JOIN games g ON g.match_id = m.id AND g.status = 'completed'
+WHERE p.space_id = ? AND p.deleted_at IS NULL AND m.status = 'completed' AND m.deleted_at IS NULL
+GROUP BY p.id, p.display_name, m.id, m.kind, m.points_to_win, m.winner_side, mp.side
+ORDER BY p.display_name`, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	players := map[string]*spacePlayerStats{}
+	order := []string{}
+	kindTotals := map[string]*statsBucket{}
+	setTotals := map[string]*statsBucket{}
+	for rows.Next() {
+		var playerID, displayName, kind, winnerSide, side string
+		var pointsToWin, pointsFor, pointsAgainst int
+		if err := rows.Scan(&playerID, &displayName, &kind, &pointsToWin, &winnerSide, &side, &pointsFor, &pointsAgainst); err != nil {
+			return nil, err
+		}
+		p := players[playerID]
+		if p == nil {
+			p = &spacePlayerStats{PlayerID: playerID, DisplayName: displayName, BreakdownByKind: map[string]any{}, BreakdownBySet: map[string]any{}}
+			players[playerID] = p
+			order = append(order, playerID)
+		}
+		won := winnerSide == side
+		p.Matches++
+		if won {
+			p.Wins++
+		} else {
+			p.Losses++
+		}
+		p.PointsFor += pointsFor
+		p.PointsAgainst += pointsAgainst
+
+		addStatsBucket(playerBucket(p.BreakdownByKind, kind), won, pointsFor, pointsAgainst)
+		setKey := setType(pointsToWin)
+		addStatsBucket(playerBucket(p.BreakdownBySet, setKey), won, pointsFor, pointsAgainst)
+		addStatsBucket(globalStatsBucket(kindTotals, kind), won, pointsFor, pointsAgainst)
+		addStatsBucket(globalStatsBucket(setTotals, setKey), won, pointsFor, pointsAgainst)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]spacePlayerStats, 0, len(order))
+	for _, id := range order {
+		p := players[id]
+		p.WinRate = domain.WinRate(p.Wins, p.Matches)
+		if p.Matches > 0 {
+			p.AveragePoints = float64(p.PointsFor) / float64(p.Matches)
+		}
+		out = append(out, *p)
+	}
+	return map[string]any{
+		"players":           out,
+		"breakdown_by_kind": statsBucketMap(kindTotals),
+		"breakdown_by_set":  statsBucketMap(setTotals),
+	}, nil
+}
+
+func setType(pointsToWin int) string {
+	if pointsToWin == 5 {
+		return "short_5"
+	}
+	return "standard_11"
+}
+
+func playerBucket(target map[string]any, key string) *statsBucket {
+	if existing, ok := target[key].(*statsBucket); ok {
+		return existing
+	}
+	b := &statsBucket{}
+	target[key] = b
+	return b
+}
+
+func globalStatsBucket(target map[string]*statsBucket, key string) *statsBucket {
+	if target[key] == nil {
+		target[key] = &statsBucket{}
+	}
+	return target[key]
+}
+
+func addStatsBucket(b *statsBucket, won bool, pointsFor, pointsAgainst int) {
+	b.Matches++
+	if won {
+		b.Wins++
+	} else {
+		b.Losses++
+	}
+	b.PointsFor += pointsFor
+	b.PointsAgainst += pointsAgainst
+}
+
+func statsBucketMap(input map[string]*statsBucket) map[string]any {
+	out := map[string]any{}
+	for key, b := range input {
+		avg := 0.0
+		if b.Matches > 0 {
+			avg = float64(b.PointsFor) / float64(b.Matches)
+		}
+		out[key] = map[string]any{"matches": b.Matches, "wins": b.Wins, "losses": b.Losses, "points_for": b.PointsFor, "points_against": b.PointsAgainst, "average_points": avg}
+	}
+	return out
 }
 
 func (s *Server) computeHeadToHead(ctx context.Context, spaceID, a, b string) (map[string]any, error) {

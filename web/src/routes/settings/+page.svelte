@@ -26,7 +26,10 @@
     <CardContent class="space-y-2 text-sm">
       <p><span class="text-muted-foreground">Display name:</span> <strong>{$session?.display_name ?? '—'}</strong></p>
       <p><span class="text-muted-foreground">Email:</span> {$session?.email ?? '—'}</p>
-      {#if $session?.is_super_admin}<p class="text-xs uppercase tracking-wide text-emerald-500">Super admin</p>{/if}
+      {#if $session?.is_super_admin}
+        <p class="text-xs uppercase tracking-wide text-emerald-500">Super admin</p>
+        <p><a class="text-primary underline" href="/admin">Open SuperAdmin overview</a></p>
+      {/if}
     </CardContent>
   </Card>
 

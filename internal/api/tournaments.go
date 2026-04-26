@@ -17,7 +17,7 @@ import (
 
 type createTournamentRequest struct {
 	Name        string   `json:"name" validate:"required,min=2"`
-	Format      string   `json:"format" validate:"required,oneof=round_robin bracket"`
+	Format      string   `json:"format" validate:"required,oneof=round_robin bracket groups_knockout"`
 	BestOf      int      `json:"best_of" validate:"required,oneof=1 3 5 7"`
 	PointsToWin int      `json:"points_to_win" validate:"required,oneof=5 11"`
 	PlayerIDs   []string `json:"player_ids" validate:"required"`
@@ -140,6 +140,17 @@ func (s *Server) handleStartTournament(w http.ResponseWriter, r *http.Request) {
 			if _, err := s.createMatch(r.Context(), tx, tournament.SpaceID, user.ID, "singles", []string{pair.Home}, []string{pair.Away}, tournament.BestOf, tournament.PointsToWin, tournamentID, "round_robin", nil, nil); err != nil {
 				s.writeError(w, http.StatusInternalServerError, "failed to create round robin matches")
 				return
+			}
+		}
+	} else if tournament.Format == "groups_knockout" {
+		groups := tournamentGroups(playerIDs)
+		for groupID, ids := range groups {
+			gid := groupID
+			for _, pair := range domain.RoundRobinPairs(ids) {
+				if _, err := s.createMatch(r.Context(), tx, tournament.SpaceID, user.ID, "singles", []string{pair.Home}, []string{pair.Away}, tournament.BestOf, tournament.PointsToWin, tournamentID, "group", &gid, nil); err != nil {
+					s.writeError(w, http.StatusInternalServerError, "failed to create group stage matches")
+					return
+				}
 			}
 		}
 	} else {
@@ -534,4 +545,20 @@ func (s *Server) advanceTournamentMatchTx(ctx context.Context, tx *sql.Tx, match
 		return s.completeByeMatchTx(ctx, tx, target)
 	}
 	return nil
+}
+
+func tournamentGroups(playerIDs []string) map[string][]string {
+	groups := map[string][]string{}
+	if len(playerIDs) == 0 {
+		return groups
+	}
+	groupCount := 1
+	if len(playerIDs) > 4 {
+		groupCount = 2
+	}
+	for i, id := range playerIDs {
+		groupID := string(rune('A' + (i % groupCount)))
+		groups[groupID] = append(groups[groupID], id)
+	}
+	return groups
 }

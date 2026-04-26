@@ -7,8 +7,10 @@
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 
   type Space = { id: string; name: string; is_invite_only: boolean; join_code: string | null };
+  type Invitation = { id: string; email: string; status: string; created_at: number; inviter_email: string };
 
   let space = $state<Space | null>(null);
+  let invitations = $state<Invitation[]>([]);
   let inviteEmail = $state('');
   let error = $state('');
   let success = $state('');
@@ -16,6 +18,8 @@
 
   async function load() {
     space = await api<Space>(`/api/spaces/${spaceID}`);
+    const r = await api<{ invitations: Invitation[] }>(`/api/spaces/${spaceID}/invitations`);
+    invitations = r.invitations ?? [];
   }
 
   $effect(() => {
@@ -31,6 +35,7 @@
       await api(`/api/spaces/${spaceID}/invitations`, { method: 'POST', bodyJson: { email: inviteEmail } });
       success = `Invitation sent to ${inviteEmail}`;
       inviteEmail = '';
+      await load();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed';
     }
@@ -79,6 +84,24 @@
         </form>
         {#if error}<p class="mt-2 text-sm text-destructive">{error}</p>{/if}
         {#if success}<p class="mt-2 text-sm text-emerald-500">{success}</p>{/if}
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader><CardTitle>Pending invitations</CardTitle></CardHeader>
+      <CardContent>
+        {#if invitations.length === 0}
+          <p class="text-sm text-muted-foreground">No invitations yet.</p>
+        {:else}
+          <ul class="space-y-2">
+            {#each invitations as invite (invite.id)}
+              <li class="rounded-md border p-3 text-sm">
+                <div class="font-medium">{invite.email}</div>
+                <div class="text-xs text-muted-foreground">{invite.status} · invited by {invite.inviter_email} · {new Date(invite.created_at).toLocaleString()}</div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </CardContent>
     </Card>
 

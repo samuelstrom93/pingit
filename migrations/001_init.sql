@@ -56,6 +56,20 @@ CREATE TABLE space_invitations (
   accepted_at INTEGER
 );
 
+CREATE TABLE space_join_requests (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  join_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','accepted','rejected','cancelled')),
+  message TEXT,
+  created_at INTEGER NOT NULL,
+  reviewed_at INTEGER,
+  reviewed_by TEXT REFERENCES users(id),
+  UNIQUE(space_id, user_id)
+);
+CREATE INDEX idx_space_join_requests_space_status ON space_join_requests(space_id, status, created_at);
+
 CREATE TABLE players (
   id TEXT PRIMARY KEY,
   space_id TEXT NOT NULL REFERENCES spaces(id),
@@ -72,7 +86,7 @@ CREATE TABLE tournaments (
   id TEXT PRIMARY KEY,
   space_id TEXT NOT NULL REFERENCES spaces(id),
   name TEXT NOT NULL,
-  format TEXT NOT NULL CHECK(format IN ('round_robin','bracket')),
+  format TEXT NOT NULL CHECK(format IN ('round_robin','bracket','groups_knockout')),
   best_of INTEGER NOT NULL CHECK(best_of IN (1,3,5,7)),
   points_to_win INTEGER NOT NULL CHECK(points_to_win IN (5,11)),
   status TEXT NOT NULL CHECK(status IN ('setup','in_progress','completed')),
@@ -162,6 +176,7 @@ DROP TABLE IF EXISTS match_participants;
 DROP TABLE IF EXISTS matches;
 DROP TABLE IF EXISTS players;
 DROP TABLE IF EXISTS tournaments;
+DROP TABLE IF EXISTS space_join_requests;
 DROP TABLE IF EXISTS space_invitations;
 DROP TABLE IF EXISTS space_members;
 DROP TABLE IF EXISTS spaces;

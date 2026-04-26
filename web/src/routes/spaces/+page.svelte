@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
+  import { ApiError, api } from '$lib/api/client';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -13,7 +13,9 @@
   let createName = $state('');
   let createDesc = $state('');
   let joinCode = $state('');
+  let joinMessage = $state('');
   let error = $state('');
+  let success = $state('');
 
   async function load() {
     loading = true;
@@ -44,12 +46,27 @@
   async function join(e: Event) {
     e.preventDefault();
     error = '';
+    success = '';
     if (!joinCode.trim()) return;
+    const code = encodeURIComponent(joinCode.trim());
     try {
-      await api(`/api/spaces/join/${encodeURIComponent(joinCode.trim())}`, { method: 'POST' });
+      await api(`/api/spaces/join/${code}`, { method: 'POST' });
       joinCode = '';
+      joinMessage = '';
       await load();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        try {
+          await api(`/api/spaces/join/${code}/request`, { method: 'POST', bodyJson: { message: joinMessage } });
+          success = 'Space is invite-only — join request sent to the admins.';
+          joinCode = '';
+          joinMessage = '';
+          return;
+        } catch (requestErr) {
+          error = requestErr instanceof Error ? requestErr.message : 'Failed to request access';
+          return;
+        }
+      }
       error = err instanceof Error ? err.message : 'Failed';
     }
   }
@@ -86,13 +103,18 @@
             <Label for="code">Join code</Label>
             <Input id="code" bind:value={joinCode} placeholder="abc12345" />
           </div>
-          <Button type="submit" variant="outline">Join</Button>
+          <div class="space-y-1.5">
+            <Label for="join-message">Message to admin (optional)</Label>
+            <Input id="join-message" bind:value={joinMessage} placeholder="Let me in" />
+          </div>
+          <Button type="submit" variant="outline">Join or request access</Button>
         </form>
       </CardContent>
     </Card>
   </div>
 
   {#if error}<p class="text-sm text-destructive">{error}</p>{/if}
+  {#if success}<p class="text-sm text-emerald-500">{success}</p>{/if}
 
   <div>
     <h2 class="mb-3 text-xl font-semibold">Your spaces</h2>

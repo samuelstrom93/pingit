@@ -75,6 +75,43 @@ func TestRoundRobinTournamentLifecycle(t *testing.T) {
 	}
 }
 
+func TestGroupsKnockoutCreatesGroupStageMatches(t *testing.T) {
+	h := newHarness(t)
+	combo, players := setupSpaceWithPlayers(t, h, "alice@example.com")
+	cookie := combo[:26]
+	spaceID := combo[27:]
+
+	resp, body := h.request(http.MethodPost, "/api/spaces/"+spaceID+"/tournaments", cookie, map[string]any{
+		"name":          "Club championship",
+		"format":        "groups_knockout",
+		"best_of":       1,
+		"points_to_win": 5,
+		"player_ids":    players,
+	})
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create tournament: %d (%s)", resp.StatusCode, body)
+	}
+	tournamentID := pickID(decode[map[string]any](t, body))
+
+	resp, body = h.request(http.MethodPost, "/api/tournaments/"+tournamentID+"/start", cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start: %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = h.request(http.MethodGet, "/api/tournaments/"+tournamentID, cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get: %d (%s)", resp.StatusCode, body)
+	}
+	detail := decode[map[string]any](t, body)
+	matches, _ := detail["matches"].([]any)
+	if len(matches) != 6 {
+		t.Fatalf("expected one group-stage round robin for 4 players, got %d", len(matches))
+	}
+	first, _ := matches[0].(map[string]any)
+	if first["tournament_phase"] != "group" || first["tournament_group_id"] == "" {
+		t.Fatalf("expected group phase metadata, got %v", first)
+	}
+}
+
 func TestBracketTournamentByes(t *testing.T) {
 	h := newHarness(t)
 	combo, players := setupSpaceWithPlayers(t, h, "alice@example.com")

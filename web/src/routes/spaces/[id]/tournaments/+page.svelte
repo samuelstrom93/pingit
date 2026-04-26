@@ -13,7 +13,7 @@
   let players = $state<Player[]>([]);
   let selected = $state<Set<string>>(new Set());
   let name = $state('');
-  let format = $state<'round_robin' | 'bracket'>('round_robin');
+  let format = $state<'round_robin' | 'bracket' | 'groups_knockout'>('round_robin');
   let bestOf = $state(3);
   let pointsToWin = $state(11);
   let error = $state('');
@@ -87,6 +87,7 @@
             <select id="t-format" bind:value={format} class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
               <option value="round_robin">Round robin</option>
               <option value="bracket">Single-elim bracket</option>
+              <option value="groups_knockout">Groups + knockout foundation</option>
             </select>
           </div>
           <div class="space-y-1.5">
