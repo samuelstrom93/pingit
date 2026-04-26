@@ -139,4 +139,4 @@ The original SQLite file remains the source of truth; Litestream streams WAL fra
 ## Feature parity notes
 
 - Feature flags: the old Azure App Configuration dependency is intentionally not ported. Pingit currently keeps feature scope local and explicit in code/config; if remote toggles become necessary later, add a small provider abstraction instead of coupling the app to Azure-specific APIs.
-- `groups_knockout` tournaments: Pingit now supports a first group-stage foundation by splitting seeded players into groups and creating round-robin group matches. Automatic knockout seeding from completed group standings is deliberately left as the next increment, because the current bracket engine only advances winners from explicit bracket matches.
+- `groups_knockout` tournaments: Pingit splits seeded players into groups, creates round-robin group matches, then automatically seeds a knockout bracket from completed group standings. Two groups seed as A1-B2 and B1-A2; a single group seeds the top four overall.

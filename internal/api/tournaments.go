@@ -475,6 +475,9 @@ func (s *Server) advanceTournamentMatchTx(ctx context.Context, tx *sql.Tx, match
 		}
 		return nil
 	}
+	if phase.String == "group" {
+		return s.maybeCreateKnockoutFromGroupsTx(ctx, tx, tournamentID.String)
+	}
 
 	participantsRows, err := tx.QueryContext(ctx, `SELECT side, player_id FROM match_participants WHERE match_id = ? ORDER BY slot`, matchID)
 	if err != nil {
@@ -537,14 +540,274 @@ func (s *Server) advanceTournamentMatchTx(ctx context.Context, tx *sql.Tx, match
 	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO match_participants (match_id, player_id, side, slot) VALUES (?, ?, ?, ?)`, target, playerID, side, slot); err != nil {
 		return err
 	}
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM match_participants WHERE match_id = ?`, target).Scan(&count); err != nil {
+	return nil
+}
+
+type tournamentGroupStanding struct {
+	PlayerID    string
+	GroupID     string
+	Wins        int
+	Losses      int
+	SetsWon     int
+	SetsLost    int
+	PointsWon   int
+	PointsLost  int
+	PointsRatio float64
+	HeadToHead  map[string]int
+}
+
+func (s *Server) maybeCreateKnockoutFromGroupsTx(ctx context.Context, tx *sql.Tx, tournamentID string) error {
+	var tournament db.Tournament
+	var winner sql.NullString
+	var deleted sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT id, space_id, name, format, best_of, points_to_win, status, winner_player_id, created_by, created_at, updated_at, deleted_at FROM tournaments WHERE id = ? AND deleted_at IS NULL`, tournamentID).Scan(&tournament.ID, &tournament.SpaceID, &tournament.Name, &tournament.Format, &tournament.BestOf, &tournament.PointsToWin, &tournament.Status, &winner, &tournament.CreatedBy, &tournament.CreatedAt, &tournament.UpdatedAt, &deleted); err != nil {
 		return err
 	}
-	if count == 1 {
-		return s.completeByeMatchTx(ctx, tx, target)
+	if tournament.Format != "groups_knockout" {
+		return nil
 	}
-	return nil
+	var remaining int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM matches WHERE tournament_id = ? AND tournament_phase = 'group' AND status != 'completed' AND deleted_at IS NULL`, tournamentID).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining > 0 {
+		return nil
+	}
+	var existingBracket int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM matches WHERE tournament_id = ? AND tournament_phase = 'bracket' AND deleted_at IS NULL`, tournamentID).Scan(&existingBracket); err != nil {
+		return err
+	}
+	if existingBracket > 0 {
+		return nil
+	}
+
+	groups, overall, err := s.groupStandingsTx(ctx, tx, tournamentID)
+	if err != nil {
+		return err
+	}
+	seeds := knockoutSeeds(groups, overall)
+	if len(seeds) == 0 {
+		return nil
+	}
+	if len(seeds) == 1 {
+		_, err := tx.ExecContext(ctx, `UPDATE tournaments SET status = 'completed', winner_player_id = ?, updated_at = ? WHERE id = ?`, seeds[0], nowMS(), tournamentID)
+		return err
+	}
+	for _, match := range domain.GenerateBracket(seeds) {
+		var homePlayers, visitorPlayers []string
+		if match.Home != nil && *match.Home != "" {
+			homePlayers = []string{*match.Home}
+		}
+		if match.Visitor != nil && *match.Visitor != "" {
+			visitorPlayers = []string{*match.Visitor}
+		}
+		matchID, err := s.createMatch(ctx, tx, tournament.SpaceID, tournament.CreatedBy, "singles", homePlayers, visitorPlayers, tournament.BestOf, tournament.PointsToWin, tournamentID, "bracket", nil, &match.Round)
+		if err != nil {
+			return err
+		}
+		if match.HasBye {
+			if err := s.completeByeMatchTx(ctx, tx, matchID); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE tournaments SET updated_at = ? WHERE id = ?`, nowMS(), tournamentID)
+	return err
+}
+
+func (s *Server) groupStandingsTx(ctx context.Context, tx *sql.Tx, tournamentID string) (map[string][]tournamentGroupStanding, []tournamentGroupStanding, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, tournament_group_id, winner_side FROM matches WHERE tournament_id = ? AND tournament_phase = 'group' AND status = 'completed' AND winner_side IS NOT NULL AND deleted_at IS NULL ORDER BY tournament_group_id, created_at`, tournamentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	stats := map[string]map[string]*tournamentGroupStanding{}
+	for rows.Next() {
+		var matchID, winnerSide string
+		var groupID sql.NullString
+		if err := rows.Scan(&matchID, &groupID, &winnerSide); err != nil {
+			return nil, nil, err
+		}
+		gid := groupID.String
+		if gid == "" {
+			gid = "A"
+		}
+		participants, err := groupMatchParticipantsTx(ctx, tx, matchID)
+		if err != nil {
+			return nil, nil, err
+		}
+		home := participants["home"]
+		visitor := participants["visitor"]
+		if home == "" || visitor == "" {
+			continue
+		}
+		if stats[gid] == nil {
+			stats[gid] = map[string]*tournamentGroupStanding{}
+		}
+		for _, playerID := range []string{home, visitor} {
+			if stats[gid][playerID] == nil {
+				stats[gid][playerID] = &tournamentGroupStanding{PlayerID: playerID, GroupID: gid, HeadToHead: map[string]int{}}
+			}
+		}
+		homeSets, visitorSets, homePoints, visitorPoints, err := matchTotalsTx(ctx, tx, matchID)
+		if err != nil {
+			return nil, nil, err
+		}
+		stats[gid][home].SetsWon += homeSets
+		stats[gid][home].SetsLost += visitorSets
+		stats[gid][home].PointsWon += homePoints
+		stats[gid][home].PointsLost += visitorPoints
+		stats[gid][visitor].SetsWon += visitorSets
+		stats[gid][visitor].SetsLost += homeSets
+		stats[gid][visitor].PointsWon += visitorPoints
+		stats[gid][visitor].PointsLost += homePoints
+		if winnerSide == "home" {
+			stats[gid][home].Wins++
+			stats[gid][visitor].Losses++
+			stats[gid][home].HeadToHead[visitor]++
+		} else {
+			stats[gid][visitor].Wins++
+			stats[gid][home].Losses++
+			stats[gid][visitor].HeadToHead[home]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	groups := map[string][]tournamentGroupStanding{}
+	var overall []tournamentGroupStanding
+	for groupID, groupStats := range stats {
+		for _, standing := range groupStats {
+			if standing.PointsLost == 0 {
+				standing.PointsRatio = float64(standing.PointsWon)
+			} else {
+				standing.PointsRatio = float64(standing.PointsWon) / float64(standing.PointsLost)
+			}
+			groups[groupID] = append(groups[groupID], *standing)
+			overall = append(overall, *standing)
+		}
+		SortTournamentStandings(groups[groupID])
+	}
+	SortTournamentStandings(overall)
+	return groups, overall, nil
+}
+
+func groupMatchParticipantsTx(ctx context.Context, tx *sql.Tx, matchID string) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT side, player_id FROM match_participants WHERE match_id = ?`, matchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	participants := map[string]string{}
+	for rows.Next() {
+		var side, playerID string
+		if err := rows.Scan(&side, &playerID); err != nil {
+			return nil, err
+		}
+		participants[side] = playerID
+	}
+	return participants, rows.Err()
+}
+
+func matchTotalsTx(ctx context.Context, tx *sql.Tx, matchID string) (homeSets, visitorSets, homePoints, visitorPoints int, err error) {
+	rows, err := tx.QueryContext(ctx, `SELECT home_score, visitor_score FROM games WHERE match_id = ? AND status = 'completed'`, matchID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var homeScore, visitorScore int
+		if err := rows.Scan(&homeScore, &visitorScore); err != nil {
+			return 0, 0, 0, 0, err
+		}
+		homePoints += homeScore
+		visitorPoints += visitorScore
+		if homeScore > visitorScore {
+			homeSets++
+		} else if visitorScore > homeScore {
+			visitorSets++
+		}
+	}
+	return homeSets, visitorSets, homePoints, visitorPoints, rows.Err()
+}
+
+func SortTournamentStandings(standings []tournamentGroupStanding) {
+	slices.SortFunc(standings, func(a, b tournamentGroupStanding) int {
+		if a.Wins != b.Wins {
+			return b.Wins - a.Wins
+		}
+		if a.HeadToHead[b.PlayerID] != b.HeadToHead[a.PlayerID] {
+			return b.HeadToHead[a.PlayerID] - a.HeadToHead[b.PlayerID]
+		}
+		setDiffA := a.SetsWon - a.SetsLost
+		setDiffB := b.SetsWon - b.SetsLost
+		if setDiffA != setDiffB {
+			return setDiffB - setDiffA
+		}
+		pointDiffA := a.PointsWon - a.PointsLost
+		pointDiffB := b.PointsWon - b.PointsLost
+		if pointDiffA != pointDiffB {
+			return pointDiffB - pointDiffA
+		}
+		switch {
+		case a.PointsRatio > b.PointsRatio:
+			return -1
+		case a.PointsRatio < b.PointsRatio:
+			return 1
+		default:
+			return strings.Compare(a.PlayerID, b.PlayerID)
+		}
+	})
+}
+
+func knockoutSeeds(groups map[string][]tournamentGroupStanding, overall []tournamentGroupStanding) []string {
+	if len(groups) == 2 {
+		groupIDs := make([]string, 0, len(groups))
+		for groupID := range groups {
+			groupIDs = append(groupIDs, groupID)
+		}
+		slices.Sort(groupIDs)
+		first := groups[groupIDs[0]]
+		second := groups[groupIDs[1]]
+		var seeds []string
+		if len(first) > 0 {
+			seeds = append(seeds, first[0].PlayerID)
+		}
+		if len(second) > 1 {
+			seeds = append(seeds, second[1].PlayerID)
+		}
+		if len(second) > 0 {
+			seeds = append(seeds, second[0].PlayerID)
+		}
+		if len(first) > 1 {
+			seeds = append(seeds, first[1].PlayerID)
+		}
+		return uniqueSeeds(seeds)
+	}
+	limit := 4
+	if len(overall) < limit {
+		limit = len(overall)
+	}
+	seeds := make([]string, 0, limit)
+	for _, standing := range overall[:limit] {
+		seeds = append(seeds, standing.PlayerID)
+	}
+	return uniqueSeeds(seeds)
+}
+
+func uniqueSeeds(seeds []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		if seed == "" || seen[seed] {
+			continue
+		}
+		seen[seed] = true
+		out = append(out, seed)
+	}
+	return out
 }
 
 func tournamentGroups(playerIDs []string) map[string][]string {

@@ -75,7 +75,7 @@ func TestRoundRobinTournamentLifecycle(t *testing.T) {
 	}
 }
 
-func TestGroupsKnockoutCreatesGroupStageMatches(t *testing.T) {
+func TestGroupsKnockoutGeneratesAndCompletesBracketAfterGroupStage(t *testing.T) {
 	h := newHarness(t)
 	combo, players := setupSpaceWithPlayers(t, h, "alice@example.com")
 	cookie := combo[:26]
@@ -97,18 +97,41 @@ func TestGroupsKnockoutCreatesGroupStageMatches(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("start: %d (%s)", resp.StatusCode, body)
 	}
-	resp, body = h.request(http.MethodGet, "/api/tournaments/"+tournamentID, cookie, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("get: %d (%s)", resp.StatusCode, body)
+
+	detail := getTournamentDetail(t, h, cookie, tournamentID)
+	groupIDs := matchIDsByPhaseRound(detail, "group", 0)
+	if len(groupIDs) != 6 {
+		t.Fatalf("expected 6 group-stage matches for 4 players, got %d", len(groupIDs))
 	}
-	detail := decode[map[string]any](t, body)
-	matches, _ := detail["matches"].([]any)
-	if len(matches) != 6 {
-		t.Fatalf("expected one group-stage round robin for 4 players, got %d", len(matches))
+	if len(matchIDsByPhaseRound(detail, "bracket", 1)) != 0 {
+		t.Fatalf("bracket should not exist before group stage is completed")
 	}
-	first, _ := matches[0].(map[string]any)
-	if first["tournament_phase"] != "group" || first["tournament_group_id"] == "" {
-		t.Fatalf("expected group phase metadata, got %v", first)
+
+	for _, matchID := range groupIDs {
+		scoreHomeToFive(t, h, cookie, matchID)
+	}
+
+	detail = getTournamentDetail(t, h, cookie, tournamentID)
+	round1 := matchIDsByPhaseRound(detail, "bracket", 1)
+	finals := matchIDsByPhaseRound(detail, "bracket", 2)
+	if len(round1) != 2 || len(finals) != 1 {
+		t.Fatalf("expected generated 2 semifinal + 1 final matches, got round1=%d final=%d detail=%v", len(round1), len(finals), detail["matches"])
+	}
+	for _, matchID := range round1 {
+		assertParticipantCount(t, h, matchID, 2)
+	}
+	assertParticipantCount(t, h, finals[0], 0)
+
+	for _, matchID := range round1 {
+		scoreHomeToFive(t, h, cookie, matchID)
+	}
+	assertParticipantCount(t, h, finals[0], 2)
+	scoreHomeToFive(t, h, cookie, finals[0])
+
+	detail = getTournamentDetail(t, h, cookie, tournamentID)
+	tournament, _ := detail["tournament"].(map[string]any)
+	if tournament["status"] != "completed" || tournament["winner_player_id"] == nil || tournament["winner_player_id"] == "" {
+		t.Fatalf("expected completed tournament with winner, got %v", tournament)
 	}
 }
 
@@ -144,5 +167,56 @@ func TestBracketTournamentByes(t *testing.T) {
 	matches, _ := detail["matches"].([]any)
 	if len(matches) < 2 {
 		t.Fatalf("expected ≥2 matches for 4-player bracket, got %d", len(matches))
+	}
+}
+
+func getTournamentDetail(t *testing.T, h *testHarness, cookie, tournamentID string) map[string]any {
+	t.Helper()
+	resp, body := h.request(http.MethodGet, "/api/tournaments/"+tournamentID, cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get tournament: %d (%s)", resp.StatusCode, body)
+	}
+	return decode[map[string]any](t, body)
+}
+
+func matchIDsByPhaseRound(detail map[string]any, phase string, round int) []string {
+	matches, _ := detail["matches"].([]any)
+	var ids []string
+	for _, item := range matches {
+		match, _ := item.(map[string]any)
+		if match["tournament_phase"] != phase {
+			continue
+		}
+		if round > 0 {
+			value, _ := match["tournament_bracket_round"].(float64)
+			if int(value) != round {
+				continue
+			}
+		}
+		if id, _ := match["id"].(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func scoreHomeToFive(t *testing.T, h *testHarness, cookie, matchID string) {
+	t.Helper()
+	for i := 0; i < 5; i++ {
+		resp, body := h.request(http.MethodPost, "/api/matches/"+matchID+"/score", cookie, map[string]any{"side": "home"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("score %s #%d: %d (%s)", matchID, i+1, resp.StatusCode, body)
+		}
+	}
+}
+
+func assertParticipantCount(t *testing.T, h *testHarness, matchID string, want int) {
+	t.Helper()
+	var got int
+	if err := h.conn.QueryRow(`SELECT COUNT(*) FROM match_participants WHERE match_id = ?`, matchID).Scan(&got); err != nil {
+		t.Fatalf("participant count: %v", err)
+	}
+	if got != want {
+		t.Fatalf("participants for %s: want %d got %d", matchID, want, got)
 	}
 }
