@@ -899,6 +899,16 @@ func matchFingerprint(m cosmosMatch) string {
 	return b.String()
 }
 
+var legacyNaiveLocation = mustLoadLocation("Europe/Stockholm")
+
+func mustLoadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
 func parseDateMS(raw string) (int64, error) {
 	if raw == "" {
 		return 0, errors.New("empty date")
@@ -906,6 +916,15 @@ func parseDateMS(raw string) (int64, error) {
 	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.999999999Z07:00"}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, raw)
+		if err == nil {
+			return t.UnixMilli(), nil
+		}
+	}
+	// Legacy Cosmos data occasionally omits timezone; treat as Europe/Stockholm
+	// since 85% of timezone-bearing entries use that offset.
+	naiveLayouts := []string{"2006-01-02T15:04:05.999999999", "2006-01-02T15:04:05"}
+	for _, layout := range naiveLayouts {
+		t, err := time.ParseInLocation(layout, raw, legacyNaiveLocation)
 		if err == nil {
 			return t.UnixMilli(), nil
 		}
