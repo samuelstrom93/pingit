@@ -1,0 +1,69 @@
+[
+  {
+    "id": "tttt1111-2222-4333-4444-555555555555",
+    "Date": "2023-03-03T22:08:47.619+01:00",
+    "TournamentName": "Test Lucia",
+    "GameType": 2,
+    "SetAmount": 1,
+    "HasGroupStage": true,
+    "Players": [
+      {"Name": "Daniel Ferenczi", "IsEliminated": true},
+      {"Name": "Patrik Johansson", "IsEliminated": false},
+      {"Name": "Samuel Ström", "IsEliminated": true}
+    ],
+    "Groups": [
+      {
+        "GroupId": 1,
+        "Matches": [
+          {
+            "PlayerOne": "Daniel Ferenczi",
+            "PlayerTwo": "Patrik Johansson",
+            "Date": "2023-03-03T20:57:15.801Z",
+            "Games": [{"HomeScore": 11, "VisitorScore": 5}, {"HomeScore": 11, "VisitorScore": 8}],
+            "GameType": 2,
+            "SetAmount": 1
+          },
+          {
+            "PlayerOne": "Daniel Ferenczi",
+            "PlayerTwo": "Samuel Ström",
+            "Date": "2023-03-03T20:57:15.801Z",
+            "Games": [{"HomeScore": 4, "VisitorScore": 11}, {"HomeScore": 11, "VisitorScore": 4}, {"HomeScore": 11, "VisitorScore": 7}],
+            "GameType": 2,
+            "SetAmount": 1
+          },
+          {
+            "PlayerOne": "Patrik Johansson",
+            "PlayerTwo": "Samuel Ström",
+            "Date": "2023-03-03T20:57:15.801Z",
+            "Games": [{"HomeScore": 11, "VisitorScore": 8}, {"HomeScore": 11, "VisitorScore": 9}],
+            "GameType": 2,
+            "SetAmount": 1
+          }
+        ]
+      }
+    ],
+    "Rounds": [
+      {
+        "Round": 1,
+        "TournamentMatches": [
+          {
+            "Bracket": 1,
+            "IsWalkover": false,
+            "PlayerOne": "Daniel Ferenczi",
+            "PlayerTwo": "Patrik Johansson",
+            "Date": "2023-03-03T21:07:14.308Z",
+            "Games": [
+              {"HomeScore": 9, "VisitorScore": 11},
+              {"HomeScore": 11, "VisitorScore": 9},
+              {"HomeScore": 7, "VisitorScore": 11},
+              {"HomeScore": 11, "VisitorScore": 6},
+              {"HomeScore": 9, "VisitorScore": 11}
+            ],
+            "GameType": 2,
+            "SetAmount": 2
+          }
+        ]
+      }
+    ]
+  }
+]

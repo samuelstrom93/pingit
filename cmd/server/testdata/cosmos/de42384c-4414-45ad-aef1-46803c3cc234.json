@@ -1,0 +1,35 @@
+[
+  {
+    "PlayerOne": "Andreas Carlsson",
+    "PlayerTwo": "Samuel Ström",
+    "id": "55555555-eeee-4eee-eeee-555555555555",
+    "Date": "2022-09-07T07:40:54.779+00:00",
+    "Games": [
+      {"HomeScore": 11, "VisitorScore": 6, "Score": {}}
+    ],
+    "GameType": 0,
+    "SetAmount": 0
+  },
+  {
+    "PlayerOne": "Andreas Carlsson",
+    "PlayerTwo": "Samuel Ström",
+    "id": "66666666-ffff-4fff-ffff-666666666666",
+    "Date": "2022-09-07T07:40:54.779+00:00",
+    "Games": [
+      {"HomeScore": 11, "VisitorScore": 6, "Score": []}
+    ],
+    "GameType": 0,
+    "SetAmount": 0
+  },
+  {
+    "PlayerOne": "Patrik Johansson",
+    "PlayerTwo": "Samuel Ström",
+    "id": "77777777-aaaa-4aaa-aaaa-777777777777",
+    "Date": "2023-01-12T09:00:00.000Z",
+    "Games": [
+      {"HomeScore": 11, "VisitorScore": 7, "Score": null}
+    ],
+    "GameType": 0,
+    "SetAmount": 0
+  }
+]

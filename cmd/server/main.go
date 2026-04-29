@@ -44,6 +44,15 @@ func main() {
 		return
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "import-cosmos" {
+		if err := importCosmos(ctx, conn, os.Args[2:]); err != nil {
+			logger.Error("import-cosmos failed", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("import-cosmos complete", "db", cfg.DBPath)
+		return
+	}
+
 	var sender email.Sender = email.ConsoleStub{Logger: logger}
 	if cfg.ResendAPIKey != "" {
 		sender = email.ResendAdapter{APIKey: cfg.ResendAPIKey, From: cfg.EmailFrom}

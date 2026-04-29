@@ -30,14 +30,14 @@ type Space struct {
 }
 
 type SpaceInvitation struct {
-	ID         string  `json:"id"`
-	SpaceID    string  `json:"space_id"`
-	Email      string  `json:"email"`
-	Token      string  `json:"token"`
-	InvitedBy  string  `json:"invited_by"`
-	Status     string  `json:"status"`
-	CreatedAt  int64   `json:"created_at"`
-	AcceptedAt *int64  `json:"accepted_at"`
+	ID         string `json:"id"`
+	SpaceID    string `json:"space_id"`
+	Email      string `json:"email"`
+	Token      string `json:"token"`
+	InvitedBy  string `json:"invited_by"`
+	Status     string `json:"status"`
+	CreatedAt  int64  `json:"created_at"`
+	AcceptedAt *int64 `json:"accepted_at"`
 }
 
 type SpaceJoinRequest struct {
@@ -80,6 +80,7 @@ type Match struct {
 	CreatedAt              int64   `json:"created_at"`
 	UpdatedAt              int64   `json:"updated_at"`
 	DeletedAt              *int64  `json:"deleted_at"`
+	LegacyCosmosID         *string `json:"legacy_cosmos_id"`
 }
 
 type Game struct {
@@ -116,4 +117,5 @@ type Tournament struct {
 	CreatedAt      int64   `json:"created_at"`
 	UpdatedAt      int64   `json:"updated_at"`
 	DeletedAt      *int64  `json:"deleted_at"`
+	LegacyCosmosID *string `json:"legacy_cosmos_id"`
 }
