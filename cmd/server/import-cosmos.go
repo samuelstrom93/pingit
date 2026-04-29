@@ -88,17 +88,18 @@ type cosmosTournamentMatch struct {
 }
 
 type importSummary struct {
-	LinkedPlayers     int
-	ManagedPlayers    int
-	Tournaments       int
-	TournamentSkipped int
-	GroupMatches      int
-	BracketMatches    int
-	SinglesMatches    int
-	DoublesMatches    int
-	ScoreEvents       int
-	SkippedByContent  int
-	SkippedByLegacyID int
+	LinkedPlayers       int
+	ManagedPlayers      int
+	Tournaments         int
+	TournamentSkipped   int
+	GroupMatches        int
+	BracketMatches      int
+	SinglesMatches      int
+	DoublesMatches      int
+	TournamentPlaySolos int // gameType=2 occurrences (singles flagged as tournament-play)
+	ScoreEvents         int
+	SkippedByContent    int
+	SkippedByLegacyID   int
 }
 
 func importCosmos(ctx context.Context, conn *sql.DB, args []string) error {
@@ -193,6 +194,7 @@ func importCosmos(ctx context.Context, conn *sql.DB, args []string) error {
 	fmt.Printf("  %stournaments: %d imported, %d skipped (already present)\n", prefix, summary.Tournaments, summary.TournamentSkipped)
 	fmt.Printf("  %stournament matches: %d group, %d bracket\n", prefix, summary.GroupMatches, summary.BracketMatches)
 	fmt.Printf("  %sstandalone matches: %d singles, %d doubles\n", prefix, summary.SinglesMatches, summary.DoublesMatches)
+	fmt.Printf("  %sgameType=2 (tournament-play singles) occurrences: %d\n", prefix, summary.TournamentPlaySolos)
 	fmt.Printf("  %sscore events: %d\n", prefix, summary.ScoreEvents)
 	fmt.Printf("  %sskipped: %d by content, %d by legacy_cosmos_id\n", prefix, summary.SkippedByContent, summary.SkippedByLegacyID)
 	return nil
@@ -229,9 +231,6 @@ func loadTournament(dir string) (*cosmosTournament, error) {
 	path := filepath.Join(dir, cosmosTournamentFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	// File can be either an array-of-one or a bare object.
@@ -555,6 +554,9 @@ func insertMatch(ctx context.Context, tx *sql.Tx, a insertMatchArgs) error {
 	if err != nil {
 		return err
 	}
+	if m.GameType == 2 {
+		a.summary.TournamentPlaySolos++
+	}
 	parsed, err := parseDateMS(m.Date)
 	if err != nil {
 		return fmt.Errorf("parse match date %q (id=%s): %w", m.Date, m.ID, err)
@@ -564,7 +566,7 @@ func insertMatch(ctx context.Context, tx *sql.Tx, a insertMatchArgs) error {
 	winSide, status := winnerForGames(m.Games)
 	bestOf := bestOfForGames(m.Games)
 	pointsToWin := pointsToWinForGames(m.Games)
-	hasEvents, eventsByGame, firstEventTS, lastEventTS, eventErr := preparseScoreEvents(m, a.players)
+	hasEvents, eventsByGame, firstEventTS, lastEventTS, eventErr := preparseScoreEvents(m)
 	if eventErr != nil {
 		return fmt.Errorf("parse score events (id=%s): %w", m.ID, eventErr)
 	}
@@ -654,12 +656,12 @@ func bestOfForGames(games []cosmosGame) int {
 }
 
 func pointsToWinForGames(games []cosmosGame) int {
-	for _, g := range games {
-		if g.HomeScore >= 10 || g.VisitorScore >= 10 {
-			return 11
-		}
-	}
-	return 5
+	// Legacy Cosmos data is virtually all 11-point table tennis. Defaulting to
+	// 11 avoids mis-tagging short/abandoned matches (forfeits, early stops) as
+	// 5-point games. If a real 5-point game ever appears it would only win at
+	// scores ≤5, but the original CHECK constraint is now relaxed so this is
+	// purely a display hint and 11 is the safer assumption.
+	return 11
 }
 
 func winnerForGames(games []cosmosGame) (string, string) {
@@ -750,7 +752,16 @@ type scoreEventTuple struct {
 	occurredAt   int64
 }
 
-func preparseScoreEvents(m *cosmosMatch, players map[string]string) (bool, map[int][]scoreEventTuple, int64, int64, error) {
+// Sanity bounds for score-event timestamps (Unix milliseconds). Anything
+// outside this range almost certainly means the source value was in the wrong
+// unit (seconds, microseconds) and should abort the import rather than write
+// 1970-era rows.
+const (
+	scoreEventMinMS = 946684800000  // 2000-01-01T00:00:00Z
+	scoreEventMaxMS = 4102444800000 // 2100-01-01T00:00:00Z
+)
+
+func preparseScoreEvents(m *cosmosMatch) (bool, map[int][]scoreEventTuple, int64, int64, error) {
 	out := map[int][]scoreEventTuple{}
 	hasAny := false
 	var firstTS, lastTS int64
@@ -771,6 +782,9 @@ func preparseScoreEvents(m *cosmosMatch, players map[string]string) (bool, map[i
 		bundle := make([]scoreEventTuple, 0, len(events))
 		home, visitor := 0, 0
 		for _, e := range events {
+			if e.Timestamp < scoreEventMinMS || e.Timestamp > scoreEventMaxMS {
+				return false, nil, 0, 0, fmt.Errorf("implausible score event timestamp %d (id=%s); expected Unix ms", e.Timestamp, m.ID)
+			}
 			side, err := scorerSide(e.Scorer, m)
 			if err != nil {
 				return false, nil, 0, 0, err
@@ -799,7 +813,6 @@ func preparseScoreEvents(m *cosmosMatch, players map[string]string) (bool, map[i
 	if !hasAny {
 		return false, nil, 0, 0, nil
 	}
-	_ = players // reserved for future doubles-side resolution
 	return true, out, firstTS, lastTS, nil
 }
 
@@ -904,7 +917,9 @@ var legacyNaiveLocation = mustLoadLocation("Europe/Stockholm")
 func mustLoadLocation(name string) *time.Location {
 	loc, err := time.LoadLocation(name)
 	if err != nil {
-		return time.UTC
+		// Fail loudly: silently using UTC would mis-attribute hours for the
+		// 24 timezone-less legacy entries. Container images must include tzdata.
+		panic(fmt.Sprintf("import-cosmos: cannot load timezone %q: %v", name, err))
 	}
 	return loc
 }
